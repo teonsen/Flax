@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Drawing;
 using System.Text;
+using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Tools;
 using FlaUI.Core.WindowsAPI;
 
 namespace Flax.Windows
@@ -24,7 +26,7 @@ namespace Flax.Windows
         public int Height { get; internal set; }
         public bool IsMinimized { get; internal set; }
         public Rectangle Rect { get; internal set; }
-        public UIElement UIElement { get; private set; }
+        //public UIElement UIElement { get; private set; }
         internal bool IsValid { get; set; } = false;
         private FlaUI.Core.AutomationElements.Window _FlaUIWindow { get; set; }
 
@@ -76,7 +78,7 @@ namespace Flax.Windows
             {
                 var app = FlaUI.Core.Application.Attach(PID);
                 _FlaUIWindow = app.GetMainWindow(automation);
-                UIElement = new UIElement(this, _FlaUIWindow);
+                //UIElement = new UIElement(this, _FlaUIWindow);
             }
         }
 
@@ -111,18 +113,12 @@ namespace Flax.Windows
 
         public void Capture(string savePath)
         {
-            //Core.Capture.Window(hWnd, savePath);
+            Windows.Capture.Window(hWnd, savePath);
         }
 
         public bool Close()
         {
             return Win32API.User32.CloseWindow2(hWnd);
-        }
-
-        public bool Destroy()
-        {
-            //return User32.DestroyWindow((int)hWnd);
-            return false;
         }
 
         public void Maximize()
@@ -138,16 +134,60 @@ namespace Flax.Windows
             Win32API.User32.ShowWindow(hWnd, Win32API.User32.SW_RESTORE);
         }
 
-        public void Move(int x, int y)
+        public void MoveTo(int x, int y)
         {
             _FlaUIWindow.Move(x, y);
         }
 
-        public void Move(int x, int y, int width, int height)
+        public void Resize(int x, int y, int width, int height)
         {
             const short SWP_NOZORDER = 0X4;
             const int SWP_SHOWWINDOW = 0x0040;
             User32.SetWindowPos(hWnd, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_SHOWWINDOW);
+        }
+
+        public UIElement GetElementByName(string name)
+        {
+            return GetElementCommon(name, FindBy.Text);
+        }
+
+        public UIElement GetElementByAutomationID(string automationID)
+        {
+            return GetElementCommon(automationID, FindBy.AutomationID);
+        }
+
+        private UIElement GetElementCommon(string id, Enum findBy)
+        {
+            if (this.IsMinimized)
+            {
+                this.Restore();
+                this.SetFlaUIWindow();
+            }
+            this.Activate();
+            AutomationElement ae = null;
+            switch (findBy)
+            {
+                case FindBy.AutomationID:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByAutomationId(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+                case FindBy.ClassName:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByClassName(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+                case FindBy.HelpText:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByHelpText(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+                case FindBy.Name:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByName(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+                case FindBy.Text:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByText(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+                case FindBy.Value:
+                    ae = Retry.WhileNull(() => _FlaUIWindow.FindFirstDescendant(cf => cf.ByValue(id)), throwOnTimeout: false, ignoreException: true).Result;
+                    break;
+            }
+            if (ae != null) return new UIElement(ae);
+            return null;
         }
 
         public override string ToString()

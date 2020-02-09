@@ -54,6 +54,12 @@ namespace Flax.Windows
             }
 
             [DllImport("user32.dll")]
+            public static extern IntPtr GetDesktopWindow();
+
+            [DllImport("user32.dll")]
+            public static extern IntPtr GetWindowDC(IntPtr hWnd);
+
+            [DllImport("user32.dll")]
             private static extern IntPtr GetWindowRect(IntPtr hWnd, ref RECT rect);
 
             public static System.Drawing.Rectangle GetWindowRectHelper(IntPtr hWnd)
@@ -88,6 +94,9 @@ namespace Flax.Windows
             [return: MarshalAs(UnmanagedType.Bool)]
             [DllImport("user32.dll", SetLastError = true)]
             static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+            [DllImport("user32.dll")]
+            public static extern IntPtr ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
             [DllImport("user32.dll")]
             public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);

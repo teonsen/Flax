@@ -44,6 +44,16 @@ namespace Flax.Windows
             Mouse.Drag(startingPoint, endingPoint);
         }
 
+        public void MoveTo(Point newPosition)
+        {
+            Mouse.MoveTo(newPosition);
+        }
+
+        public void MoveTo(int newX, int newY)
+        {
+            Mouse.MoveTo(newX, newY);
+        }
+
         public void RightClick()
         {
             Mouse.RightClick();
@@ -54,9 +64,36 @@ namespace Flax.Windows
             Mouse.RightClick(new System.Drawing.Point(x, y));
         }
 
-        public void Scroll(double lines)
+        public static void VerticalScroll(double lines)
         {
             Mouse.Scroll(lines);
         }
+
+        public static void HorizontalScroll(double lines)
+        {
+            Mouse.HorizontalScroll(lines);
+        }
+
+        public void MouseAction(ClickType clickType, MouseButton mouseButton)
+        {
+            switch (clickType)
+            {
+                case ClickType.Single:
+                    Mouse.Click((FlaUI.Core.Input.MouseButton)mouseButton);
+                    break;
+                case ClickType.Double:
+                    Mouse.DoubleClick((FlaUI.Core.Input.MouseButton)mouseButton);
+                    break;
+                case ClickType.Down:
+                    Mouse.Down((FlaUI.Core.Input.MouseButton)mouseButton);
+                    break;
+                case ClickType.Up:
+                    Mouse.Up((FlaUI.Core.Input.MouseButton)mouseButton);
+                    break;
+                default:
+                    break;
+            }
+        }
+
     }
 }

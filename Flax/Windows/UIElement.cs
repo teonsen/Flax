@@ -1,63 +1,79 @@
 ﻿using System;
+using System.Drawing;
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Tools;
+using FlaUI.Core.Input;
 
 namespace Flax.Windows
 {
     public class UIElement
     {
-        private static FlaxWindow _fxW;
-        private static Window _flaW;
+        AutomationElement _ae;
 
-        public UIElement(FlaxWindow fxW, Window flaW)
+        public UIElement(AutomationElement element)
         {
-            _fxW = fxW;
-            _flaW = flaW;
+            _ae = element;
+            Name = FromAutomationProperty(element.FrameworkAutomationElement.Name);
+            AutomationID = FromAutomationProperty(element.FrameworkAutomationElement.AutomationId);
+            ClassName = FromAutomationProperty(element.FrameworkAutomationElement.ClassName);
+            HelpText = FromAutomationProperty(element.FrameworkAutomationElement.HelpText);
+            BoundingRectangle = element.BoundingRectangle;
+            CenterX = element.BoundingRectangle.X + element.BoundingRectangle.Width / 2;
+            CenterY = element.BoundingRectangle.Y + element.BoundingRectangle.Height / 2;
+            Enabled = element.IsEnabled;
+            Visible = !element.IsOffscreen;
         }
 
-        public bool Click(string id, Enum findBy)
+        private string FromAutomationProperty(FlaUI.Core.IAutomationProperty<string> value)
         {
-            var e = GetTheElement(id, findBy);
-            if (e != null)
-            {
-                e.Click();
-                return true;
-            }
-            return false;
+            return value.ToDisplayText();
         }
 
-        private AutomationElement GetTheElement(string id, Enum findBy)
+        public string Name { get; private set; }
+        public string AutomationID { get; private set; }
+        public string ClassName { get; private set; }
+        public string HelpText { get; private set; }
+        public Rectangle BoundingRectangle { get; private set; }
+        public int CenterX { get; private set; }
+        public int CenterY { get; private set; }
+        public bool Enabled { get; private set; }
+        public bool Visible { get; private set; }
+
+        public void Click()
         {
-            if (_fxW.IsMinimized)
-            {
-                _fxW.Restore();
-                _fxW.SetFlaUIWindow();
-            }
-            _fxW.Activate();
-            AutomationElement ae = null;
-            switch (findBy)
-            {
-                case FindBy.AutomationID:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByAutomationId(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-                case FindBy.ClassName:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByClassName(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-                case FindBy.HelpText:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByHelpText(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-                case FindBy.Name:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByName(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-                case FindBy.Text:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByText(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-                case FindBy.Value:
-                    ae = Retry.WhileNull(() => _flaW.FindFirstDescendant(cf => cf.ByValue(id)), throwOnTimeout: false, ignoreException: true).Result;
-                    break;
-            }
-            return ae;
+            _ae.Click();
+        }
+
+        public void Capture(string savePath)
+        {
+            Windows.Capture.Region(BoundingRectangle, savePath);
+        }
+
+        public void DoubleClick()
+        {
+            _ae.DoubleClick();
+        }
+
+        public void Focus()
+        {
+            _ae.Focus();
+        }
+
+        public void Hover()
+        {
+            Mouse.MoveTo(CenterX, CenterY);
+        }
+
+        public void RightClick()
+        {
+            _ae.RightClick();
+        }
+
+        public void RightDoubleClick()
+        {
+            _ae.RightDoubleClick();
         }
 
     }
+
+
 }
