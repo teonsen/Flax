@@ -13,7 +13,7 @@ using Flax;
 
     using (var w = f.GetWindow("Calculator"))
     {
-        w.UIElement.Click("1", FindBy.Text);
+        w.GetElementByName("1")?.Click();
     }
 ```
 
