@@ -40,9 +40,9 @@ namespace Flax.Windows
                 }
                 return bmp;
             }
-            catch (ArgumentException ae)
+            catch (ArgumentException)
             {
-                System.Windows.Forms.MessageBox.Show("The Window might have closed after the window handle was obtained.", "ERROR", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error);
+                // The window may have closed after the handle was obtained; return null so callers can handle it.
             }
             return null;
         }

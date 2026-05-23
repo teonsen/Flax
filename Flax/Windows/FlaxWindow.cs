@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Text;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Tools;
@@ -123,6 +125,38 @@ namespace Flax.Windows
         public void Capture(string savePath)
         {
             Windows.Capture.Window(hWnd, savePath);
+        }
+
+        /// <summary>
+        /// Captures this window and returns the image as PNG bytes (for MCP image content / Vision).
+        /// Returns null if the capture failed.
+        /// </summary>
+        public byte[] CaptureToPngBytes()
+        {
+            using (var img = Windows.Capture.Window(hWnd))
+            {
+                if (img == null) return null;
+                using (var ms = new MemoryStream())
+                {
+                    img.Save(ms, ImageFormat.Png);
+                    return ms.ToArray();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Registers an element found outside a full tree walk (e.g. via GetElementByName) into the
+        /// current snapshot map and returns the assigned id, so it can be acted on with GetElementById.
+        /// The id is valid only until the next GetElementTreeAsJson call rebuilds the map.
+        /// </summary>
+        public int RegisterFoundElement(UIElement element)
+        {
+            if (element == null) throw new ArgumentNullException(nameof(element));
+            if (_elementMap == null) _elementMap = new Dictionary<int, UIElement>();
+            int id = _elementMap.Count > 0 ? _elementMap.Keys.Max() + 1 : 0;
+            element.Id = id;
+            _elementMap[id] = element;
+            return id;
         }
 
         public bool Close()
