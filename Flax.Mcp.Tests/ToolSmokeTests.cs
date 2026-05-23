@@ -25,19 +25,31 @@ public class ToolSmokeTests
         var automation = new WindowsAutomation();
         var sessions = new SessionManager();
 
-        WindowTools.LaunchApp(automation, "mspaint.exe");
+        var launched = WindowTools.LaunchApp(automation, "mspaint.exe");
+        using (var launchDoc = JsonDocument.Parse(launched))
+            Assert.That(launchDoc.RootElement.GetProperty("ok").GetBoolean(), Is.True, launched);
+
         Thread.Sleep(2000);
 
-        var sessionId = SessionIdFrom(WindowTools.OpenWindow(automation, sessions, "%Paint%", 10));
+        string? sessionId = null;
+        try
+        {
+            sessionId = SessionIdFrom(WindowTools.OpenWindow(automation, sessions, "%Paint%", 10));
 
-        var tree = InspectionTools.GetElementTree(sessions, sessionId);
-        Assert.That(tree, Does.Contain("controlType"));
+            var tree = InspectionTools.GetElementTree(sessions, sessionId);
+            Assert.That(tree, Does.Contain("controlType"));
 
-        var capture = InspectionTools.CaptureWindow(sessions, sessionId).ToList();
-        Assert.That(capture.OfType<ImageContentBlock>().Any(), Is.True);
-
-        var closed = WindowTools.CloseWindow(sessions, sessionId);
-        using var doc = JsonDocument.Parse(closed);
-        Assert.That(doc.RootElement.GetProperty("ok").GetBoolean(), Is.True);
+            var capture = InspectionTools.CaptureWindow(sessions, sessionId).ToList();
+            Assert.That(capture.OfType<ImageContentBlock>().Any(), Is.True);
+        }
+        finally
+        {
+            if (sessionId != null)
+            {
+                var closed = WindowTools.CloseWindow(sessions, sessionId);
+                using var doc = JsonDocument.Parse(closed);
+                Assert.That(doc.RootElement.GetProperty("ok").GetBoolean(), Is.True);
+            }
+        }
     }
 }
