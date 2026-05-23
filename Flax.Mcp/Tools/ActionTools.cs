@@ -21,6 +21,9 @@ public static class ActionTools
         if (!sessions.TryGet(sessionId, out var window))
             return Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." });
 
+        if (doubleClick && string.Equals(button, "right", StringComparison.OrdinalIgnoreCase))
+            return Json.Of(new { ok = false, error = "unsupported_combination", hint = "Right-button double-click is not supported. Use a single right click or a left double-click." });
+
         var kind = doubleClick
             ? ClickKind.LeftDouble
             : (string.Equals(button, "right", StringComparison.OrdinalIgnoreCase) ? ClickKind.Right : ClickKind.Left);
@@ -42,7 +45,7 @@ public static class ActionTools
             });
 
         if (outcome.Success)
-            return Json.Of(new { ok = true, method = outcome.Method });
+            return Json.Of(new { ok = true, method = outcome.Method, uiaError = outcome.UiaError });
 
         return Json.Of(new
         {

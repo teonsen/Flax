@@ -16,7 +16,7 @@ public interface IElementLookup
     IClickable? FindById(int id);
 }
 
-public sealed record ClickOutcome(bool Success, string Method, string? Error = null);
+public sealed record ClickOutcome(bool Success, string? Method, string? Error = null, string? UiaError = null);
 
 /// <summary>
 /// Decides how to click: ID-priority (UIA Invoke) with a coordinate fallback on the element's
@@ -36,13 +36,13 @@ public sealed class ClickService
         {
             var element = lookup.FindById(elementId.Value);
             if (element == null)
-                return new ClickOutcome(false, "none", "element_not_found");
+                return new ClickOutcome(false, null, "element_not_found");
 
-            if (element.TryUiaClick(kind, out _))
+            if (element.TryUiaClick(kind, out var uiaError))
                 return new ClickOutcome(true, "uia");
 
             coordClick(element.Center.X, element.Center.Y, kind);
-            return new ClickOutcome(true, "coord-fallback");
+            return new ClickOutcome(true, "coord-fallback", UiaError: uiaError);
         }
 
         if (x.HasValue && y.HasValue)
@@ -51,7 +51,7 @@ public sealed class ClickService
             return new ClickOutcome(true, "coord");
         }
 
-        return new ClickOutcome(false, "none", "bad_request");
+        return new ClickOutcome(false, null, "bad_request");
     }
 }
 

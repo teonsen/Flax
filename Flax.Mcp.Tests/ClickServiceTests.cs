@@ -54,6 +54,7 @@ public class ClickServiceTests
         Assert.That(outcome.Method, Is.EqualTo("coord-fallback"));
         Assert.That(coordCalls, Has.Count.EqualTo(1));
         Assert.That(coordCalls[0], Is.EqualTo((40, 60, ClickKind.Left)));
+        Assert.That(outcome.UiaError, Is.EqualTo("boom"));
     }
 
     [Test]
