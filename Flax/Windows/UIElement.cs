@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
@@ -21,6 +22,7 @@ namespace Flax.Windows
             CenterY = element.BoundingRectangle.Y + element.BoundingRectangle.Height / 2;
             Enabled = element.IsEnabled;
             Visible = !element.IsOffscreen;
+            ControlType = GetControlTypeSafe(element);
         }
 
         private string FromAutomationProperty(FlaUI.Core.IAutomationProperty<string> value)
@@ -37,6 +39,21 @@ namespace Flax.Windows
         public int CenterY { get; private set; }
         public bool Enabled { get; private set; }
         public bool Visible { get; private set; }
+        public int Id { get; internal set; } = -1;
+        public string ControlType { get; private set; }
+        public IReadOnlyList<UIElement> Children { get; internal set; } = new List<UIElement>();
+
+        private static string GetControlTypeSafe(AutomationElement element)
+        {
+            try
+            {
+                return element.ControlType.ToString();
+            }
+            catch
+            {
+                return "";
+            }
+        }
 
         public void Click()
         {
