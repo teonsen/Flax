@@ -9,17 +9,20 @@ namespace Flax.Mcp.Tools;
 [McpServerToolType]
 public static class InspectionTools
 {
-    [McpServerTool, Description("Return the window's UIA element tree as token-efficient JSON. Each node has a sequential 'id' valid only in this snapshot; pass it to click(elementId). Re-call each turn.")]
+    [McpServerTool, Description("Return the window's UIA element tree under { ok:true, tree:<nodes> }. Each node has a sequential 'id' valid only in this snapshot; pass it to click(elementId). Re-call each turn.")]
     public static string GetElementTree(SessionManager sessions, string sessionId, int maxDepth = -1, bool includeOffscreen = false) => ToolRunner.Run(() =>
     {
         if (!sessions.TryGet(sessionId, out var window))
             return Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." });
 
         var json = window.GetElementTreeAsJson(maxDepth, includeOffscreen);
-        return json ?? Json.Of(new { ok = false, error = "tree_unavailable", hint = "Root not accessible (e.g. WinUI3). Use capture_window + Vision instead." });
+        if (json == null)
+            return Json.Of(new { ok = false, error = "tree_unavailable", hint = "Root not accessible (e.g. WinUI3). Use capture_window + Vision instead." });
+
+        return Json.Of(new { ok = true, tree = System.Text.Json.Nodes.JsonNode.Parse(json) });
     });
 
-    [McpServerTool, Description("Find a single element by its accessible name and register it in the snapshot. Returns its id, rect [x,y,w,h] and center [x,y]. Use the id with click, or the center coordinates as a fallback.")]
+    [McpServerTool, Description("Find a single element by its accessible name and register it in the snapshot. Returns its id, rect [x,y,w,h] and center [x,y]. The id is valid only until the next get_element_tree call rebuilds the snapshot. Use the id with click, or the center coordinates as a fallback.")]
     public static string FindElement(SessionManager sessions, string sessionId, string name) => ToolRunner.Run(() =>
     {
         if (!sessions.TryGet(sessionId, out var window))
@@ -47,12 +50,12 @@ public static class InspectionTools
         try
         {
             if (!sessions.TryGet(sessionId, out var window))
-                return new ContentBlock[] { new TextContentBlock { Text = Json.Of(new { ok = false, error = "session_not_found" }) } };
+                return new ContentBlock[] { new TextContentBlock { Text = Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." }) } };
 
             window.Activate();
             var png = window.CaptureToPngBytes();
             if (png == null || png.Length == 0)
-                return new ContentBlock[] { new TextContentBlock { Text = Json.Of(new { ok = false, error = "capture_failed" }) } };
+                return new ContentBlock[] { new TextContentBlock { Text = Json.Of(new { ok = false, error = "capture_failed", hint = "Ensure the window is visible and not minimized." }) } };
 
             return new ContentBlock[]
             {
