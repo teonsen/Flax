@@ -29,6 +29,7 @@ namespace Flax.Windows
         //public UIElement UIElement { get; private set; }
         internal bool IsValid { get; set; } = false;
         private FlaUI.Core.AutomationElements.Window _FlaUIWindow { get; set; }
+        private Dictionary<int, UIElement> _elementMap;
 
         public FlaxWindow(IntPtr hwnd, int idx)
         {
@@ -188,6 +189,99 @@ namespace Flax.Windows
             }
             if (ae != null) return new UIElement(ae);
             return null;
+        }
+
+        public string GetElementTreeAsJson(int maxDepth = -1, bool includeOffscreen = false)
+        {
+            if (this.IsMinimized)
+            {
+                this.Restore();
+                this.SetFlaUIWindow();
+            }
+            this.Activate();
+
+            _elementMap = new Dictionary<int, UIElement>();
+            int nextId = 0;
+            UIElement root = BuildTree(_FlaUIWindow, 0, maxDepth, includeOffscreen, ref nextId);
+            UINode rootNode = (root != null) ? ToNode(root) : null;
+            return rootNode != null ? rootNode.ToJson() : "null";
+        }
+
+        public UIElement GetElementById(int id)
+        {
+            if (_elementMap != null && _elementMap.TryGetValue(id, out UIElement element))
+            {
+                return element;
+            }
+            return null;
+        }
+
+        private UIElement BuildTree(AutomationElement ae, int depth, int maxDepth, bool includeOffscreen, ref int nextId)
+        {
+            if (!includeOffscreen && ae.IsOffscreen)
+            {
+                return null;
+            }
+
+            var element = new UIElement(ae);
+            element.Id = nextId++;
+            _elementMap[element.Id] = element;
+
+            var children = new List<UIElement>();
+            if (maxDepth < 0 || depth < maxDepth)
+            {
+                AutomationElement[] childElements;
+                try
+                {
+                    childElements = ae.FindAllChildren();
+                }
+                catch
+                {
+                    childElements = new AutomationElement[0];
+                }
+
+                foreach (var childAe in childElements)
+                {
+                    var child = BuildTree(childAe, depth + 1, maxDepth, includeOffscreen, ref nextId);
+                    if (child != null)
+                    {
+                        children.Add(child);
+                    }
+                }
+            }
+            element.Children = children;
+            return element;
+        }
+
+        private static UINode ToNode(UIElement e)
+        {
+            var node = new UINode
+            {
+                Id = e.Id,
+                ControlType = e.ControlType,
+                Name = string.IsNullOrEmpty(e.Name) ? null : e.Name,
+                AutomationId = string.IsNullOrEmpty(e.AutomationID) ? null : e.AutomationID,
+                ClassName = string.IsNullOrEmpty(e.ClassName) ? null : e.ClassName,
+                Rect = new[]
+                {
+                    e.BoundingRectangle.X,
+                    e.BoundingRectangle.Y,
+                    e.BoundingRectangle.Width,
+                    e.BoundingRectangle.Height
+                },
+                Enabled = e.Enabled,
+                Visible = e.Visible
+            };
+
+            if (e.Children != null && e.Children.Count > 0)
+            {
+                node.Children = new List<UINode>();
+                foreach (var child in e.Children)
+                {
+                    node.Children.Add(ToNode(child));
+                }
+            }
+            return node;
         }
 
         public override string ToString()
