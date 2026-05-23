@@ -14,6 +14,7 @@ public sealed class SessionManager
 
     public string Open(FlaxWindow window)
     {
+        ArgumentNullException.ThrowIfNull(window);
         var id = "s" + Interlocked.Increment(ref _counter);
         _sessions[id] = window;
         return id;
