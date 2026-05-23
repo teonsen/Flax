@@ -75,7 +75,6 @@ namespace Flax
         public void Dispose()
         {
             GC.SuppressFinalize(this);
-            GC.Collect();
         }
 
         public void Wait(int milliSeconds)

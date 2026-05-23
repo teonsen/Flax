@@ -95,7 +95,6 @@ namespace Flax.Windows
             _automation?.Dispose();
             _automation = null;
             GC.SuppressFinalize(this);
-            GC.Collect();
         }
 
         private void GetProcessInfo(IntPtr hWnd, ref string exeName, ref string exePath, ref int pid)
