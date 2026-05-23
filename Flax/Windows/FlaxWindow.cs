@@ -151,6 +151,7 @@ namespace Flax.Windows
         /// </summary>
         public int RegisterFoundElement(UIElement element)
         {
+            if (element == null) throw new ArgumentNullException(nameof(element));
             if (_elementMap == null) _elementMap = new Dictionary<int, UIElement>();
             int id = _elementMap.Count > 0 ? _elementMap.Keys.Max() + 1 : 0;
             element.Id = id;
