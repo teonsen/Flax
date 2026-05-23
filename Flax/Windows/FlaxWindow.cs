@@ -33,6 +33,7 @@ namespace Flax.Windows
         // GetElementById. Not thread-safe: assumes single-threaded use within one LLM turn.
         private Dictionary<int, UIElement> _elementMap;
         private FlaUI.UIA3.UIA3Automation _automation;
+        private FlaUI.Core.Application _app;
 
         public FlaxWindow(IntPtr hwnd, int idx)
         {
@@ -82,12 +83,15 @@ namespace Flax.Windows
             {
                 _automation = new FlaUI.UIA3.UIA3Automation();
             }
-            var app = FlaUI.Core.Application.Attach(PID);
-            _FlaUIWindow = app.GetMainWindow(_automation);
+            _app?.Dispose();
+            _app = FlaUI.Core.Application.Attach(PID);
+            _FlaUIWindow = _app.GetMainWindow(_automation);
         }
 
         public void Dispose()
         {
+            _app?.Dispose();
+            _app = null;
             _automation?.Dispose();
             _automation = null;
             GC.SuppressFinalize(this);
