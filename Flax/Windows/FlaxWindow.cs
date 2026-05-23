@@ -32,6 +32,7 @@ namespace Flax.Windows
         // Snapshot of the most recent GetElementTreeAsJson walk (id -> element). Rebuilt on each call and read by
         // GetElementById. Not thread-safe: assumes single-threaded use within one LLM turn.
         private Dictionary<int, UIElement> _elementMap;
+        private FlaUI.UIA3.UIA3Automation _automation;
 
         public FlaxWindow(IntPtr hwnd, int idx)
         {
@@ -77,16 +78,18 @@ namespace Flax.Windows
 
         internal void SetFlaUIWindow()
         {
-            using (var automation = new FlaUI.UIA3.UIA3Automation())
+            if (_automation == null)
             {
-                var app = FlaUI.Core.Application.Attach(PID);
-                _FlaUIWindow = app.GetMainWindow(automation);
-                //UIElement = new UIElement(this, _FlaUIWindow);
+                _automation = new FlaUI.UIA3.UIA3Automation();
             }
+            var app = FlaUI.Core.Application.Attach(PID);
+            _FlaUIWindow = app.GetMainWindow(_automation);
         }
 
         public void Dispose()
         {
+            _automation?.Dispose();
+            _automation = null;
             GC.SuppressFinalize(this);
             GC.Collect();
         }
