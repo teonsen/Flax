@@ -28,6 +28,8 @@ namespace Flax.Tests
             Assert.That(obj.ContainsKey("automationId"), Is.False);
             Assert.That(obj.ContainsKey("className"), Is.False);
             Assert.That(obj.ContainsKey("children"), Is.False);
+            Assert.That((bool)obj["enabled"], Is.True);
+            Assert.That((bool)obj["visible"], Is.True);
         }
 
         [Test]
@@ -83,6 +85,49 @@ namespace Flax.Tests
             Assert.That((int)children[0]["id"], Is.EqualTo(1));
             Assert.That((string)children[0]["automationId"], Is.EqualTo("num1Button"));
             Assert.That(children[0]["children"], Is.Null);
+        }
+
+        [Test]
+        public void ToJson_NestsGrandchildren()
+        {
+            var root = new UINode
+            {
+                Id = 0,
+                ControlType = "Window",
+                Rect = new[] { 0, 0, 100, 100 },
+                Enabled = true,
+                Visible = true,
+                Children = new List<UINode>
+                {
+                    new UINode
+                    {
+                        Id = 1,
+                        ControlType = "Pane",
+                        Rect = new[] { 0, 0, 50, 50 },
+                        Enabled = true,
+                        Visible = true,
+                        Children = new List<UINode>
+                        {
+                            new UINode
+                            {
+                                Id = 2,
+                                ControlType = "Button",
+                                Name = "OK",
+                                Rect = new[] { 0, 0, 20, 20 },
+                                Enabled = true,
+                                Visible = true
+                            }
+                        }
+                    }
+                }
+            };
+
+            var obj = JObject.Parse(root.ToJson());
+            var grandchild = obj["children"][0]["children"][0];
+
+            Assert.That((int)grandchild["id"], Is.EqualTo(2));
+            Assert.That((string)grandchild["controlType"], Is.EqualTo("Button"));
+            Assert.That((string)grandchild["name"], Is.EqualTo("OK"));
         }
     }
 }

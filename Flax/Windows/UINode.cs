@@ -11,6 +11,15 @@ namespace Flax.Windows
     /// </summary>
     public class UINode
     {
+        // NullValueHandling.Ignore only suppresses nulls, not empty strings.
+        // Callers must assign null (not "") to Name, AutomationId, and ClassName
+        // to have those fields omitted from the JSON output.
+        private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
+        {
+            NullValueHandling = NullValueHandling.Ignore,
+            ContractResolver = new CamelCasePropertyNamesContractResolver()
+        };
+
         public int Id { get; set; }
         public string ControlType { get; set; }
         public string Name { get; set; }
@@ -23,12 +32,7 @@ namespace Flax.Windows
 
         public string ToJson()
         {
-            var settings = new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Ignore,
-                ContractResolver = new CamelCasePropertyNamesContractResolver()
-            };
-            return JsonConvert.SerializeObject(this, settings);
+            return JsonConvert.SerializeObject(this, JsonSettings);
         }
     }
 }
