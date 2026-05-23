@@ -29,6 +29,8 @@ namespace Flax.Windows
         //public UIElement UIElement { get; private set; }
         internal bool IsValid { get; set; } = false;
         private FlaUI.Core.AutomationElements.Window _FlaUIWindow { get; set; }
+        // Snapshot of the most recent GetElementTreeAsJson walk (id -> element). Rebuilt on each call and read by
+        // GetElementById. Not thread-safe: assumes single-threaded use within one LLM turn.
         private Dictionary<int, UIElement> _elementMap;
 
         public FlaxWindow(IntPtr hwnd, int idx)
@@ -191,6 +193,13 @@ namespace Flax.Windows
             return null;
         }
 
+        /// <summary>
+        /// Walks this window's UI element tree and returns it as a token-efficient JSON string for LLM consumption.
+        /// Each node gets a sequential id that is valid only within this snapshot; pass a chosen id to
+        /// GetElementById to act on that element. Re-call this each turn to get a fresh snapshot.
+        /// Precondition: obtain the window via WindowsAutomation.GetWindow (which initializes the underlying
+        /// UIA window). Returns null if the root element is not accessible.
+        /// </summary>
         public string GetElementTreeAsJson(int maxDepth = -1, bool includeOffscreen = false)
         {
             if (this.IsMinimized)
@@ -204,7 +213,7 @@ namespace Flax.Windows
             int nextId = 0;
             UIElement root = BuildTree(_FlaUIWindow, 0, maxDepth, includeOffscreen, ref nextId);
             UINode rootNode = (root != null) ? ToNode(root) : null;
-            return rootNode != null ? rootNode.ToJson() : "null";
+            return rootNode != null ? rootNode.ToJson() : null;
         }
 
         public UIElement GetElementById(int id)
@@ -218,16 +227,25 @@ namespace Flax.Windows
 
         private UIElement BuildTree(AutomationElement ae, int depth, int maxDepth, bool includeOffscreen, ref int nextId)
         {
-            if (!includeOffscreen && ae.IsOffscreen)
+            UIElement element;
+            try
             {
+                if (!includeOffscreen && ae.IsOffscreen)
+                {
+                    return null;
+                }
+                element = new UIElement(ae);
+            }
+            catch
+            {
+                // The element may have gone stale (COMException) between enumeration and property reads; skip it.
                 return null;
             }
-
-            var element = new UIElement(ae);
             element.Id = nextId++;
             _elementMap[element.Id] = element;
 
             var children = new List<UIElement>();
+            // depth is the current node's depth; recurse only while we haven't reached maxDepth (maxDepth < 0 = unlimited, 0 = root only).
             if (maxDepth < 0 || depth < maxDepth)
             {
                 AutomationElement[] childElements;

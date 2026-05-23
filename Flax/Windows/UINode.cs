@@ -9,7 +9,7 @@ namespace Flax.Windows
     /// JSON tree for LLM consumption. Empty optional fields and empty child
     /// lists are omitted from the output.
     /// </summary>
-    public class UINode
+    internal class UINode
     {
         // NullValueHandling.Ignore only suppresses nulls, not empty strings.
         // Callers must assign null (not "") to Name, AutomationId, and ClassName
