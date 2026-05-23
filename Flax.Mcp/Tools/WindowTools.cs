@@ -23,7 +23,7 @@ public static class WindowTools
     }
 
     [McpServerTool, Description("List visible top-level windows with title, pid, className, rect [x,y,w,h], minimized.")]
-    public static string ListWindows()
+    public static string ListWindows() => ToolRunner.Run(() =>
     {
         var windows = WindowsAutomation.GetWindowList().Select(w => new
         {
@@ -34,10 +34,10 @@ public static class WindowTools
             minimized = w.IsMinimized
         });
         return Json.Of(new { ok = true, windows });
-    }
+    });
 
     [McpServerTool, Description("Open a window by title (supports % wildcards: '%text%', '%suffix', 'prefix%') and start a UIA session. Returns a sessionId used by other tools.")]
-    public static string OpenWindow(WindowsAutomation automation, SessionManager sessions, string titleQuery, int timeoutSec = 10)
+    public static string OpenWindow(WindowsAutomation automation, SessionManager sessions, string titleQuery, int timeoutSec = 10) => ToolRunner.Run(() =>
     {
         var window = automation.GetWindow(titleQuery, timeoutSec);
         if (window == null)
@@ -51,24 +51,24 @@ public static class WindowTools
             title = window.Title,
             rect = new[] { window.Left, window.Top, window.Width, window.Height }
         });
-    }
+    });
 
     [McpServerTool, Description("Bring the session's window to the foreground.")]
-    public static string ActivateWindow(SessionManager sessions, string sessionId)
+    public static string ActivateWindow(SessionManager sessions, string sessionId) => ToolRunner.Run(() =>
     {
         if (!sessions.TryGet(sessionId, out var window))
             return Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." });
         window.Activate();
         return Json.Of(new { ok = true });
-    }
+    });
 
     [McpServerTool, Description("Close the session's window and release the UIA session.")]
-    public static string CloseWindow(SessionManager sessions, string sessionId)
+    public static string CloseWindow(SessionManager sessions, string sessionId) => ToolRunner.Run(() =>
     {
         if (!sessions.TryGet(sessionId, out var window))
             return Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." });
         window.Close();
         sessions.Remove(sessionId);
         return Json.Of(new { ok = true });
-    }
+    });
 }
