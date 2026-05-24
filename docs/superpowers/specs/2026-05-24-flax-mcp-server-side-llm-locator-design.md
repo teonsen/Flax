@@ -23,8 +23,12 @@ opencode・Cline など任意の MCP クライアントから利用できる。M
 - **スタンドアロンホスト（独立エージェント）は作らない。** MCP クライアントが頭脳を担う。
 - **対応クライアント**: Claude Desktop / Claude Code に加え opencode・Cline・汎用 stdio。
 - **サポートするプロバイダ**: Anthropic / OpenAI / Azure OpenAI の3種。Vision のため画像入力必須。
-- **設定方式**: `appsettings.json` にプロバイダ/モデル/baseURL/apiVersion、**API キーは環境変数**
-  （env がファイルを上書き）。
+- **プロバイダ差の吸収方式**: **`Microsoft.Extensions.AI` の `IChatClient`**（.NET 公式の統一抽象）を採用。
+  OpenAI / Azure は first-party コネクタ、Anthropic は `Anthropic.SDK` の `IChatClient` 実装で
+  ネイティブ API のまま対応。wire 形式の手書きはしない。
+- **LLM コードは独立プロジェクトにしない** — `Flax.Mcp` 内（`Flax.Mcp/Llm/`）に置く。
+- **設定は環境変数が主**（MCP クライアントの設定が Flax.Mcp プロセスに env 注入する）。
+  `appsettings.json` は任意のフォールバック。**API キーは常に環境変数**から読む。
 - **サーバ側 LLM はホストのモデルと独立** — 要素判別専用に安いモデルを設定する。
 
 ### 解決する課題
@@ -40,89 +44,105 @@ UIA ツリーが浅くしか取れず、Vision での座標読みが必要にな
 
 ## 2. アーキテクチャ
 
+別プロジェクトは増やさない。`Flax.Mcp` 内に LLM 層を足すだけ。
+
 ```
-Flax.sln
-├── Flax/             既存ライブラリ（変更なし）
-├── Flax.Mcp/         locate_element 追加 / Flax.Llm 参照 / appsettings.json 追加
-├── Flax.Llm/   ★新規  プロバイダ非依存の LLM クライアント抽象 + 3実装 + 設定（net8.0・UI非依存）
-└── Flax.Llm.Tests/ ★新規
+Flax.Mcp/
+├── Program.cs              LlmOptions バインド + ElementLocator を DI 登録（追加）
+├── Llm/            ★新規
+│   ├── LlmOptions.cs       設定モデル（env 優先 / appsettings フォールバック）
+│   ├── ChatClientFactory.cs  LlmOptions → Microsoft.Extensions.AI の IChatClient を構築
+│   └── ElementLocator.cs   IChatClient を使った tree/vision 判別ロジック（状態を持つ）
+├── Tools/
+│   └── InspectionTools.cs  locate_element ツールを追加
+└── appsettings.json ★新規  "Llm" セクション（任意フォールバック、キーは書かない）
 ```
 
-- `Flax.Llm` は HTTP で LLM API を呼ぶだけで UI 依存がないため `net8.0`（`-windows` なし）。
-  `net8.0-windows` の `Flax.Mcp` から問題なく参照できる。
-- `Flax.Mcp` は `Flax.Llm` を参照し、`appsettings.json` の `"Llm"` セクションから
-  `ILlmClient` を DI 登録する。**LLM 未設定でもサーバは起動する**（`locate_element` だけが
-  `llm_not_configured` を返す）。
+追加 NuGet（`Flax.Mcp.csproj`）:
+- `Microsoft.Extensions.AI`（`IChatClient` 抽象・型）
+- `Microsoft.Extensions.AI.OpenAI`（OpenAI / Azure OpenAI コネクタ）
+- `Anthropic.SDK`（`IChatClient` を実装する Anthropic クライアント）
+
+> 注: `Microsoft.Extensions.AI.OpenAI` は preview の時期がある。実装時にバージョンを固定し、
+> 0 エラーでビルドできることを確認する（§9）。
 
 ### 設定の独立性（本設計の肝）
 
+```mermaid
+flowchart LR
+    C["MCPクライアント (opencode)<br/>高級モデル（クライアント側で設定）"]
+    M["Flax.Mcp"]
+    L["要素判別 IChatClient<br/>安いモデル（FLAX_LLM_* + キー env）"]
+    W["Windows / UIA"]
+    C -- "ツール呼び出し / 結果は小さい" --> M
+    M -- "tree JSON か PNG + target" --> L
+    L -- "elementId / 座標" --> M
+    M --> W
 ```
-MCP クライアント (opencode / Claude Desktop) ── 高級モデル（コーディング等、ユーザがクライアント側で設定）
-        │  ツール呼び出し（locate_element 等）／結果は小さい
-        ▼
-Flax.Mcp ── ★安いモデル（要素判別専用、appsettings.json + env で設定）
-        │
-        ▼
-Windows / UIA
-```
 
-## 3. Flax.Llm（プロバイダ抽象）
-
-### 中立型（プロバイダ非依存）
-
-- `LlmMessage { Role, Content[] }`（Role = system/user/assistant）
-- `LlmContent`: テキスト / 画像（PNG bytes）。判別タスクは1往復なので tool_use/tool_result は不要。
-- `LlmRequest { System?, Messages[], MaxTokens, Temperature? }`
-- `LlmResponse { Text }`（判別結果の構造化 JSON はこの Text に入れて返させ、呼び出し側で解析）
-
-### インターフェースと実装
-
-- `interface ILlmClient { Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken ct); }`
-- 実装3つ。各々が中立型 ⇄ プロバイダ wire 形式を変換し、**画像入力（base64 PNG）**に対応する。
-  - `AnthropicLlmClient` — Messages API（`content` に `{type:"image", source:{type:"base64",...}}`）
-  - `OpenAiLlmClient` — Chat Completions（`image_url` に `data:image/png;base64,...`）
-  - `AzureOpenAiLlmClient` — OpenAI 互換だが `BaseUrl` のデプロイ名 + `api-version` クエリが必須
-- `LlmClientFactory.Create(LlmOptions, HttpClient)` → 適切な実装を返す。
-- `HttpClient` は `IHttpClientFactory` 経由で注入（テストで `HttpMessageHandler` 差し替え可能に）。
+## 3. Flax.Mcp 内 LLM 層（Microsoft.Extensions.AI）
 
 ### 設定 `LlmOptions`
 
-| キー | 説明 | 例 |
-|---|---|---|
-| `Provider` | `Anthropic` / `OpenAI` / `Azure` | `Anthropic` |
-| `Model` | モデル/デプロイ名（**安いモデルを指定**） | `claude-haiku-4-5` |
-| `BaseUrl` | 任意。Azure や互換エンドポイント用 | `https://xxx.openai.azure.com/...` |
-| `ApiVersion` | Azure 用 | `2024-10-21` |
-| `MaxTokens` | 既定 1024 | `1024` |
-| `ApiKeyEnvVar` | キーを読む環境変数名（既定はプロバイダ別） | `MY_KEY` |
+| プロパティ | 環境変数（主） | appsettings(`Llm:`) | 説明 |
+|---|---|---|---|
+| `Provider` | `FLAX_LLM_PROVIDER` | `Provider` | `openai` / `azure` / `anthropic`（未設定=機能オフ） |
+| `Model` | `FLAX_LLM_MODEL` | `Model` | モデル/デプロイ名（**安いモデル**を指定） |
+| `BaseUrl` | `FLAX_LLM_BASE_URL` | `BaseUrl` | 任意。Azure や互換エンドポイント用 |
+| `ApiVersion` | `FLAX_LLM_API_VERSION` | `ApiVersion` | Azure 用 |
+| `ApiKeyEnvVar` | `FLAX_LLM_API_KEY_ENV` | `ApiKeyEnvVar` | キーを読む環境変数名（既定はプロバイダ別） |
+| `MaxOutputTokens` | `FLAX_LLM_MAX_TOKENS` | `MaxOutputTokens` | 既定 1024 |
 
-- `appsettings.json` の `"Llm"` セクションに記述。**API キーはファイルに書かず環境変数**から読む
-  （既定 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY`、`ApiKeyEnvVar` で上書き）。
-- 環境変数がファイル設定を上書きする（`Host.CreateApplicationBuilder` 既定の構成順）。
-- `Provider` 未設定 → `ILlmClient` を登録しない（`locate_element` が `llm_not_configured` を返す）。
-- `Provider` は設定済みだがキー環境変数が空 → `locate_element` 実行時に `llm_key_missing` を返す
-  （サーバ起動自体は妨げない）。
+- 環境変数が `appsettings.json` の `"Llm"` セクションを上書きする。MCP クライアントの設定
+  （opencode.json の `environment` など）から env を注入すれば、`appsettings.json` 無しで完結する。
+- **API キーは `ApiKeyEnvVar` が指す環境変数**から読む。既定は `openai`→`OPENAI_API_KEY`、
+  `azure`→`AZURE_OPENAI_API_KEY`、`anthropic`→`ANTHROPIC_API_KEY`。キーを設定ファイルに置かない。
+
+### `ChatClientFactory`
+
+`static IChatClient Create(LlmOptions o, string apiKey)` がプロバイダ別に `IChatClient` を構築：
+
+- `openai`: OpenAI SDK のクライアントを生成（`BaseUrl` 指定時はエンドポイント差し替え）し、
+  `.AsIChatClient(model)` で `IChatClient` 化。
+- `azure`: Azure OpenAI クライアントを `BaseUrl`(エンドポイント) + `ApiVersion` + キーで生成し、
+  デプロイ名(`Model`) で `.AsIChatClient()`。
+- `anthropic`: `Anthropic.SDK` のクライアントが提供する `IChatClient`（モデル=`Model`）。
+
+3 プロバイダの wire 差はコネクタ側が吸収。本コードはプロバイダ選択と資格情報の受け渡しだけ。
+
+### `ElementLocator`（常に DI 登録、状態を持つ）
+
+DI で常に登録し、構築時に設定状態を判定する（MCP ツールの引数注入を壊さないため、
+未設定でもインスタンスは存在し、`Status` で分岐する）。
+
+- `Status`: `Ready` / `NotConfigured`（`Provider` 未設定）/ `KeyMissing`（キー env 空）。
+- `Task<LocateResult> LocateInTreeAsync(string treeJson, string target, ct)`:
+  system + user(テキスト) で `IChatClient.GetResponseAsync` を呼び、応答テキストから
+  `{ found, id, confidence?, reasoning? }` を解析。
+- `Task<LocateResult> LocateByVisionAsync(byte[] png, string target, ct)`:
+  user メッセージに `DataContent(png, "image/png")` を載せ、`{ found, px, py, confidence?, reasoning? }`
+  を解析。
+- 応答が JSON として解析不能なら `found=false` + 生テキスト断片を `reasoning` に。
 
 ## 4. `locate_element`（Flax.Mcp の新ツール）
 
 `Tools/InspectionTools.cs` に追加（既存ツールと同じ `ToolRunner.Run` パターン）。
+DI で `SessionManager` と `ElementLocator` を受け取る。
 
 - **入力**: `sessionId`, `target`（自然言語、例 `"「1」ボタン"`）, `mode?`（`auto` 既定 / `tree` / `vision`）
 - **動作**:
-  1. **tree モード**: `window.GetElementTreeAsJson()` の JSON ＋ `target` を `ILlmClient` に渡し、
-     「該当ノードの `id` を JSON で返せ。無ければ `found:false`」と依頼。`id` を解析して返す。
-     → クライアントはツリーを受け取らずに済む（トークン節約の本丸）。
-  2. **vision モード**: `window.CaptureToPngBytes()` の PNG ＋ `target` を渡し、
-     画像内のピクセル座標を依頼。返ったピクセル `(px,py)` を**画面座標** `x=Left+px, y=Top+py`
-     に変換して返す（クライアントはそのまま `click(x,y)` できる）。
-  3. **auto**: tree を試し、ツリーが取得不可（`GetElementTreeAsJson==null`、WinUI3）または
-     `found:false` の場合に vision へ自動フォールバック。
+  1. `ElementLocator.Status` が `Ready` でなければ即エラー（`llm_not_configured` / `llm_key_missing`）。
+  2. **tree モード**: `window.GetElementTreeAsJson()` の JSON ＋ `target` を `LocateInTreeAsync` に渡し、
+     該当 `id` を得る。→ クライアントはツリーを受け取らずに済む（トークン節約の本丸）。
+  3. **vision モード**: `window.CaptureToPngBytes()` の PNG ＋ `target` を `LocateByVisionAsync` に渡し、
+     画像内ピクセル `(px,py)` を得て、**画面座標** `x=Left+px, y=Top+py` に換算して返す。
+  4. **auto**: tree を試し、ツリー取得不可（`GetElementTreeAsJson==null`、WinUI3）または `found:false`
+     の場合に vision へ自動フォールバック。
 - **出力（成功）**: `{ ok:true, mode:"tree"|"vision", elementId?, x?, y?, confidence?, reasoning? }`
   - tree → `elementId`、vision → `x,y`(画面絶対座標)。どちらも既存 `click` にそのまま渡せる。
-- **出力（エラー）**: 既存と同じ封筒 `{ ok:false, error, hint }`。
+- **出力（エラー）**: `{ ok:false, error, hint }`。
   - `session_not_found` / `llm_not_configured` / `llm_key_missing` / `llm_error`（API 失敗）/
-    `element_not_found`（tree/vision とも該当なし）。
-- LLM 応答の JSON 解析が失敗した場合は `llm_error`（`reasoning` に生テキスト断片を含めヒント化）。
+    `element_not_found`（tree・vision とも該当なし）。
 
 ### 既存ツールとの関係
 
@@ -134,23 +154,58 @@ Windows / UIA
 
 ## 5. データフロー（opencode + 安いモデルで「電卓の1ボタン」）
 
-```
-opencode(高級モデル)        Flax.Mcp + Flax.Llm(安いモデル)        Windows/UIA
- │ launch_app("calc")  ───▶                                   ─▶ 電卓起動
- │ open_window("%電卓%")───▶ sessionId 発番
- │ locate_element(sid,"1")─▶ tree 取得→浅い(WinUI3)→vision へ
- │                           capture→安いモデルが座標判定
- │   ◀── {mode:"vision", x,y}（小さい結果だけ返る）
- │ click(sid, x, y)    ───▶ Mouse.Click(x,y)                  ─▶ 実クリック
+```mermaid
+sequenceDiagram
+    actor U as ユーザ
+    participant C as MCPクライアント(opencode)<br/>高級モデル
+    participant M as Flax.Mcp
+    participant L as 要素判別 IChatClient<br/>安いモデル
+    participant W as Windows / UIA
+
+    Note over C,M: opencode.json で Flax.Mcp を stdio 登録<br/>environment に FLAX_LLM_* と APIキーを注入
+    U->>C: 「電卓で1+1を計算して」
+    C->>M: launch_app("calc.exe")
+    M->>W: プロセス起動
+    C->>M: open_window("%電卓%")
+    M-->>C: sessionId
+    C->>M: locate_element(sid, "「1」ボタン")
+    M->>W: GetElementTreeAsJson()
+    alt ツリーで判別できる(クラシックアプリ)
+        M->>L: tree JSON + target
+        L-->>M: { id }
+    else ツリーが浅い(WinUI3)→Vision
+        M->>W: CaptureToPngBytes()
+        M->>L: PNG画像 + target
+        L-->>M: { px, py }
+        Note over M: x=Left+px, y=Top+py に換算
+    end
+    M-->>C: { elementId } または { x, y }<br/>(小さい結果。高級モデルはツリー/画像を飲まない)
+    C->>M: click(sid, elementId か x,y)
+    M->>W: 実クリック
 ```
 
-クラシックアプリ（メモ帳等）では `locate_element` が tree モードで `elementId` を返し、
-`click(elementId)` で UIA Invoke。高級モデルは巨大ツリーも画像も受け取らない。
+`locate_element` 内部の `auto` 判定：
+
+```mermaid
+flowchart TD
+    A["locate_element (auto)"] --> S{"ElementLocator<br/>Ready?"}
+    S -- いいえ --> X["llm_not_configured /<br/>llm_key_missing"]
+    S -- はい --> B{"ツリー取得可?"}
+    B -- 取れる --> C["安いモデルに tree+target"]
+    C --> D{"該当 id?"}
+    D -- あり --> E["elementId を返す"]
+    D -- なし --> F["Vision へ"]
+    B -- "取れない (WinUI3)" --> F["capture → 安いモデルに 画像+target"]
+    F --> G{"座標特定?"}
+    G -- できた --> H["x=Left+px, y=Top+py を返す"]
+    G -- できない --> I["element_not_found"]
+```
 
 ## 6. マルチクライアント・ドキュメント（README 追記）
 
-- **opencode**: `opencode.json` の `mcp` に Flax.Mcp.exe を stdio コマンドとして登録する例。
-- **Cline / 汎用 stdio クライアント**: 同様の stdio 登録例。
+- **opencode**: `opencode.json` の `mcp` に Flax.Mcp.exe を stdio 登録し、`environment` に
+  `FLAX_LLM_PROVIDER` / `FLAX_LLM_MODEL` と APIキー（`OPENAI_API_KEY` 等）を `{env:...}` で注入する例。
+- **Cline / 汎用 stdio クライアント**: 同様の stdio + env 注入例。
 - 棲み分けの明記: 「クライアント側で各自の API キーを設定する」前提と、
   「**Flax.Mcp 側の `Llm` 設定は要素判別専用の安いモデル**（任意・未設定でも他ツールは動く）」。
 - `appsettings.json` の `"Llm"` 設定例とプロバイダ別 env var 一覧。秘密情報を含まないため
@@ -163,25 +218,31 @@ opencode(高級モデル)        Flax.Mcp + Flax.Llm(安いモデル)        Win
 | error | 状況 |
 |---|---|
 | `session_not_found` | 不正/期限切れ sessionId |
-| `llm_not_configured` | `Llm:Provider` 未設定（→「クライアント側で判別するか Llm を設定」） |
+| `llm_not_configured` | `Provider` 未設定（→「クライアント側で判別するか Llm を設定」） |
 | `llm_key_missing` | プロバイダ設定済みだがキー環境変数が空 |
 | `llm_error` | API 呼び出し失敗 / 応答 JSON 解析失敗 |
 | `element_not_found` | tree・vision とも該当要素を特定できず |
 
 ## 8. テスト
 
-- **Flax.Llm.Tests**:
-  - 各プロバイダの 中立→wire 変換を `HttpMessageHandler` モックで検証
-    （リクエスト JSON 形状、画像が base64 で正しく載るか、Azure の url+api-version）。
-  - 応答 wire→`LlmResponse` の解析。
-  - 設定ロード: env がファイルを上書き、キー欠如の検出。
-- **Flax.Mcp.Tests**: `locate_element` を fake `ILlmClient` で検証
-  （tree ヒット→`elementId`、tree ミス→vision フォールバック→画面座標換算、
-  `llm_not_configured` / `llm_key_missing` / `llm_error` の各封筒）。
+別テストプロジェクトは作らず、既存 `Flax.Mcp.Tests` に追加する。
+
+- **LlmOptions バインド**: env が `appsettings` を上書き、未設定/キー欠如で `Status` が
+  `NotConfigured`/`KeyMissing` になることを検証（実 API 呼び出しなし）。
+- **ElementLocator**: `IChatClient` は interface なので**フェイク**に差し替え、
+  scripted な応答テキストで `LocateInTreeAsync`/`LocateByVisionAsync` の解析
+  （`found`/`id`/`px,py`、JSON 解析失敗時の `found=false`）を検証。
+- **locate_element ツール**: フェイク `ElementLocator`/`IChatClient` で——
+  tree ヒット→`elementId`、tree ミス→vision フォールバック→画面座標換算、
+  `llm_not_configured`/`llm_key_missing`/`llm_error` の各封筒を検証。
 - **統合スモーク**: 実 API キーで課金が発生するため `[Explicit]`（CI スキップ）。
 
 ## 9. 未確定・要検証項目
 
-- 各プロバイダの最新 wire 仕様（特に画像コンテンツ）と、判別タスクに適した安価モデルの実名。
+- `Microsoft.Extensions.AI` / `Microsoft.Extensions.AI.OpenAI` / `Anthropic.SDK` の
+  バージョン固定と、`net8.0-windows` 上で 0 エラーでビルドできること。
+- 各コネクタの `IChatClient` 取得 API の正確な呼び出し方（`AsIChatClient` 等）と、
+  画像入力（`DataContent`）の対応可否。
+- 判別タスクに適した安価モデルの実名（OpenAI/Anthropic/Azure それぞれ）。
 - `locate_element` に渡すツリー JSON のサイズ上限（巨大ツリー時の切り詰め要否）。
 - vision モードの座標精度（DPI スケーリング下での `Left/Top` 換算）。
