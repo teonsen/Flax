@@ -4,6 +4,92 @@
 - 対象: Flax.Mcp に、設定可能な LLM プロバイダ/キーを持つサーバ側の「UI 要素判別」機能を追加する
 - 前提となる既存設計: [2026-05-23-flax-mcp-server-design.md](2026-05-23-flax-mcp-server-design.md)
 
+## 0. 全体像（公開ツール一覧と使用フロー）
+
+本設計後に `Flax.Mcp` が公開するツールは、既存 13（診断 `ping` 含む）+ 新規 `locate_element` の計 14。
+`sessionId` 列が「要」のツールは `open_window` が発番したセッションが必要。
+
+| カテゴリ | ツール | 主な入力 | 出力 | sessionId |
+|---|---|---|---|---|
+| 診断 | `ping` | — | `"pong"` | 不要 |
+| ウィンドウ/セッション | `launch_app` | `path`, `args?` | 起動可否 | 不要 |
+| 〃 | `list_windows` | — | `[{title,pid,className,rect,minimized}]` | 不要 |
+| 〃 | `open_window` | `titleQuery`, `timeoutSec?` | **`sessionId`** + ウィンドウ情報 | 発番 |
+| 〃 | `activate_window` | `sessionId` | 結果 | 要 |
+| 〃 | `close_window` | `sessionId` | 解放結果 | 要 |
+| 要素の取得・判別 | `get_element_tree` | `sessionId`, `maxDepth?`, `includeOffscreen?` | `{ok, tree}` | 要 |
+| 〃 | `find_element` | `sessionId`, `name` | `{id, name, rect, center}`（厳密名一致・LLM 不使用） | 要 |
+| 〃 | `locate_element` ★新規 | `sessionId`, `target`, `mode?` | `{mode, elementId? \| x,y, confidence?}`（安いモデルで意味判別） | 要 |
+| 〃 | `capture_window` | `sessionId` | PNG 画像 + `windowOrigin` | 要 |
+| 操作 | `click` | `sessionId`, `{elementId}` か `{x,y}`, `button?`, `double?` | 結果 | 要 |
+| 〃 | `type_text` | `sessionId`, `text` | 結果 | 要 |
+| 〃 | `send_keys` | `sessionId`, `keys`（例 `"ENTER"`） | 結果 | 要 |
+| 〃 | `scroll` | `sessionId`, `lines`, `horizontal?` | 結果 | 要 |
+
+### ツールマップ（4カテゴリ + 要素判別の4経路）
+
+```mermaid
+flowchart TB
+    subgraph DIAG["診断"]
+        ping["ping"]
+    end
+    subgraph WIN["ウィンドウ / セッション管理"]
+        launch["launch_app"]
+        list["list_windows"]
+        open["open_window → sessionId"]
+        activate["activate_window"]
+        close["close_window"]
+    end
+    subgraph FIND["要素の取得・判別（4経路）"]
+        findel["find_element<br/>厳密名一致・LLM 不使用"]
+        tree["get_element_tree<br/>クライアントが構造判断"]
+        locate["locate_element ★新規<br/>サーバの安いモデルで判別"]
+        capture["capture_window<br/>クライアント Vision で判断"]
+    end
+    subgraph ACT["操作（アクション）"]
+        click["click"]
+        type["type_text"]
+        keys["send_keys"]
+        scroll["scroll"]
+    end
+    FIND --> ACT
+```
+
+### 使用フロー（要素特定の4経路と分岐）
+
+```mermaid
+flowchart TD
+    A["launch_app<br/>（必要なら起動）"] --> B["list_windows<br/>（目的画面の確認）"]
+    B --> C["open_window → sessionId 取得"]
+    C --> D{"目的要素をどう特定?"}
+
+    D -->|"名前が分かる"| E["find_element → elementId"]
+    D -->|"構造をクライアントで判断"| F["get_element_tree<br/>→ クライアントが判断 → elementId"]
+    D -->|"安いモデルにオフロード"| G["locate_element"]
+    D -->|"画像でクライアントが判断"| H["capture_window<br/>→ クライアント Vision → x,y"]
+
+    G --> J{"結果は?"}
+    J -->|"elementId (tree)"| I["click(elementId)"]
+    J -->|"x,y (vision)"| K["click(x,y)"]
+
+    E --> I
+    F --> I
+    H --> K
+
+    I --> L["操作: type_text / send_keys / scroll<br/>（必要に応じて）"]
+    K --> L
+    L --> M["検証: get_element_tree /<br/>capture_window で結果確認"]
+    M --> N["close_window<br/>（セッション解放・COM ハンドル解放）"]
+```
+
+### 「要素特定」4経路の使い分け
+
+- **`find_element`** — アクセシブル名が分かるクラシックアプリ向け。LLM 不使用で最速・無料。
+- **`get_element_tree`** — クライアントの（高級）モデルに構造を渡して判断させる従来経路。トークン消費は大きい。
+- **`locate_element`（新規）** — 重い「ツリー/画像 → 目的要素」判別を**サーバ側の安いモデル**へ肩代わりさせ、
+  クライアントには `elementId` か `x,y` の小さな結果だけ返す。tree 優先、WinUI3 では vision に自動フォールバック。
+- **`capture_window`** — クライアント自身が Vision を持つ場合（Claude Desktop 等）の画像経路。
+
 ## 1. 背景と目的
 
 `Flax.Mcp` は標準の stdio MCP サーバで、Claude Desktop / Claude Code に加え、
