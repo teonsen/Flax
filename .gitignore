@@ -348,3 +348,6 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# Local LLM settings overrides (contain API keys — never commit)
+appsettings.*.local.json
