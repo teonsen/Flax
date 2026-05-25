@@ -80,3 +80,52 @@ using Flax;
    ```
 
 3. Restart Claude Desktop. The `flax` tools then appear and an LLM can drive Windows apps (e.g. "open Notepad and type hello", or for WinUI3 apps "電卓で1+1を計算して" via the screenshot + Vision path).
+
+### Using Flax.Mcp from other MCP clients (opencode / Cline / generic stdio)
+
+`Flax.Mcp` is a standard stdio MCP server and works with any MCP-compatible client. The server-side **element-locator model** (used by `locate_element`, optional) can be configured with a separate, cheaper model — independent of whatever model the client itself uses. API keys are always read from environment variables, never from config files.
+
+**opencode (`opencode.json`)**
+
+```json
+{
+  "mcp": {
+    "flax": {
+      "type": "local",
+      "command": ["C:\\path\\to\\Flax.Mcp.exe"],
+      "environment": {
+        "FLAX_LLM_PROVIDER": "openai",
+        "FLAX_LLM_MODEL": "gpt-4o-mini",
+        "OPENAI_API_KEY": "{env:OPENAI_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+- `FLAX_LLM_PROVIDER` — `openai` / `azure` / `anthropic`
+- `FLAX_LLM_MODEL` — the **cheap model** name for element location (e.g. `gpt-4o-mini`)
+- API key env-var: `OPENAI_API_KEY` / `AZURE_OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
+  (use `FLAX_LLM_API_KEY_ENV` to specify a different env-var name)
+- Azure additionally requires `FLAX_LLM_BASE_URL` (the Azure OpenAI endpoint URL)
+
+**Cline / generic stdio clients**
+
+Register `Flax.Mcp.exe` as a stdio command and inject `FLAX_LLM_*` plus the provider's API key via the client's `env` block, following the same pattern as above.
+
+**Separation of concerns**
+
+- **The client's model** (reasoning, tool selection) is configured in the client as usual.
+- **Flax.Mcp's `Llm` config** is only for `locate_element` — a cheap dedicated model. **All other tools work without it.** If `Llm` is not configured, `locate_element` returns `llm_not_configured`; every other tool is unaffected.
+- `locate_element` offloads UI-tree / Vision inference to the cheap server-side model and returns only a small result (`elementId` or `x,y`) to the client, saving client-side tokens.
+
+**`locate_element` tool**
+
+- Input: `sessionId`, `target` (natural language, e.g. `"the 1 button"`), `mode?` (`auto` default / `tree` / `vision`)
+- `auto` mode: tries the UIA tree first; if the tree is unavailable (e.g. WinUI3) or the target is not found, automatically falls back to Vision.
+- Output: tree mode → `{ "ok": true, "mode": "tree", "elementId": <id> }`; vision mode → `{ "ok": true, "mode": "vision", "x": <n>, "y": <n> }` (absolute screen coordinates). Both formats can be passed directly to `click`.
+- Error codes: `session_not_found`, `llm_not_configured`, `llm_key_missing`, `llm_error`, `element_not_found`.
+
+**Optional fallback: `appsettings.json`**
+
+If env vars are not set, the `"Llm"` section in `appsettings.json` (placed next to `Flax.Mcp.exe`) can supply `Provider`, `Model`, `BaseUrl`, and `ApiKeyEnv` — but **never put API keys in the file itself**; keys must always come from environment variables.
