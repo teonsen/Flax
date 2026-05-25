@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Threading;
+using Flax.Mcp.Llm;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -76,4 +78,19 @@ public static class InspectionTools
             return new ContentBlock[] { new TextContentBlock { Text = Json.Of(new { ok = false, error = "unexpected_error", message = ex.Message }) } };
         }
     }
+
+    [McpServerTool, Description("Locate one UI element from a natural-language target using the server-side locator model (a cheap model configured via FLAX_LLM_*). Returns a small result you can pass straight to click: tree mode -> { elementId }, vision mode -> { x, y } in absolute screen coordinates. mode: auto (default, tree then vision) | tree | vision.")]
+    public static string LocateElement(SessionManager sessions, ElementLocator locator, string sessionId, string target, string? mode = null) => ToolRunner.Run(() =>
+    {
+        if (!sessions.TryGet(sessionId, out var window))
+            return Json.Of(new { ok = false, error = "session_not_found", hint = "Call open_window first." });
+
+        var outcome = new LocateService()
+            .LocateAsync(locator, new FlaxWindowLocateAdapter(window), target, LocateModeParser.Parse(mode), CancellationToken.None)
+            .GetAwaiter().GetResult();
+
+        return outcome.Ok
+            ? Json.Of(new { ok = true, mode = outcome.Mode, elementId = outcome.ElementId, x = outcome.X, y = outcome.Y, confidence = outcome.Confidence, reasoning = outcome.Reasoning })
+            : Json.Of(new { ok = false, error = outcome.Error, hint = outcome.Hint, reasoning = outcome.Reasoning });
+    });
 }
