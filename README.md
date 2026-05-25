@@ -109,6 +109,31 @@ using Flax;
   (use `FLAX_LLM_API_KEY_ENV` to specify a different env-var name)
 - Azure additionally requires `FLAX_LLM_BASE_URL` (the Azure OpenAI endpoint URL)
 
+**Azure OpenAI**
+
+```json
+{
+  "mcp": {
+    "flax": {
+      "type": "local",
+      "command": ["C:\\path\\to\\Flax.Mcp.exe"],
+      "environment": {
+        "FLAX_LLM_PROVIDER": "azure",
+        "FLAX_LLM_MODEL": "my-gpt4o-deployment",
+        "FLAX_LLM_BASE_URL": "https://my-resource.openai.azure.com/",
+        "AZURE_OPENAI_API_KEY": "{env:AZURE_OPENAI_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+- `FLAX_LLM_MODEL` is the Azure **deployment name** (not the underlying model name).
+- `FLAX_LLM_BASE_URL` (the endpoint) is **required** for Azure; without it the locator fails to start.
+- Authentication is **API-key only** (Entra ID / managed identity is not supported).
+- For the `vision`/`auto` fallback to read screenshots, the deployment must be a **vision-capable** model (e.g. `gpt-4o`). A text-only deployment supports `tree` mode only.
+- `FLAX_LLM_API_VERSION` is accepted but **not applied** — the Azure SDK's built-in default service version is used.
+
 **Cline / generic stdio clients**
 
 Register `Flax.Mcp.exe` as a stdio command and inject `FLAX_LLM_*` plus the provider's API key via the client's `env` block, following the same pattern as above.
