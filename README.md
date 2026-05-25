@@ -128,4 +128,4 @@ Register `Flax.Mcp.exe` as a stdio command and inject `FLAX_LLM_*` plus the prov
 
 **Optional fallback: `appsettings.json`**
 
-If env vars are not set, the `"Llm"` section in `appsettings.json` (placed next to `Flax.Mcp.exe`) can supply `Provider`, `Model`, `BaseUrl`, and `ApiKeyEnv` — but **never put API keys in the file itself**; keys must always come from environment variables.
+If env vars are not set, the `"Llm"` section in `appsettings.json` (placed next to `Flax.Mcp.exe`) can supply `Provider`, `Model`, `BaseUrl`, and `ApiKeyEnvVar` — but **never put API keys in the file itself**; keys must always come from environment variables.
