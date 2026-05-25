@@ -25,6 +25,13 @@ public static class ChatClientFactory
             {
                 if (string.IsNullOrWhiteSpace(o.BaseUrl))
                     throw new InvalidOperationException("azure provider requires FLAX_LLM_BASE_URL (the Azure OpenAI endpoint).");
+                // NOTE: o.ApiVersion (FLAX_LLM_API_VERSION) is intentionally not applied here.
+                // Azure.AI.OpenAI 2.x exposes the service API version only as a typed enum
+                // (AzureOpenAIClientOptions.ServiceVersion), not as a free-form string.
+                // The 2.1.0 GA release defaults to the 2024-10-21 stable API version, which is
+                // sufficient for the element-locator use-case.  Adding fragile string→enum
+                // parsing would not be safe, so the option is preserved in LlmOptions for
+                // potential future use but is left unapplied in this factory.
                 var client = new Azure.AI.OpenAI.AzureOpenAIClient(new Uri(o.BaseUrl), new ApiKeyCredential(apiKey));
                 return client.GetChatClient(o.Model).AsIChatClient();   // o.Model = deployment name
             }
