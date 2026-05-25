@@ -59,6 +59,35 @@ using Flax;
 
 **Tools:** `launch_app`, `list_windows`, `open_window`, `activate_window`, `close_window`, `get_element_tree`, `find_element`, `capture_window`, `click`, `type_text`, `send_keys`, `scroll`.
 
+**Tool map (4 categories + 4 element-location paths)**
+
+```mermaid
+flowchart TB
+    subgraph DIAG["Diagnostics"]
+        ping["ping"]
+    end
+    subgraph WIN["Window / session management"]
+        launch["launch_app"]
+        list["list_windows"]
+        open["open_window → sessionId"]
+        activate["activate_window"]
+        close["close_window"]
+    end
+    subgraph FIND["Element retrieval / location (4 paths)"]
+        findel["find_element<br/>exact name match, no LLM"]
+        tree["get_element_tree<br/>client decides from the structure"]
+        locate["locate_element ★new<br/>cheap server-side model decides"]
+        capture["capture_window<br/>client Vision decides"]
+    end
+    subgraph ACT["Operations (actions)"]
+        click["click"]
+        type["type_text"]
+        keys["send_keys"]
+        scroll["scroll"]
+    end
+    FIND --> ACT
+```
+
 **Workflow:** `open_window` returns a `sessionId` that every other tool takes. Element `id`s come from `get_element_tree` (returned as `{ "ok": true, "tree": ... }`) or `find_element`, and are valid only within the latest snapshot — re-read the tree each turn. `click` is ID-priority (UIA `Invoke`) with an automatic coordinate fallback. For WinUI3 apps where the tree is too shallow to expose the controls, call `capture_window`, read the pixel coordinates of the target from the returned PNG, add the returned `windowOrigin` `[x,y]` to convert image pixels to absolute screen coordinates, then call `click` with those `x,y`.
 
 **Build and register in Claude Desktop:**
@@ -79,7 +108,7 @@ using Flax;
    }
    ```
 
-3. Restart Claude Desktop. The `flax` tools then appear and an LLM can drive Windows apps (e.g. "open Notepad and type hello", or for WinUI3 apps "電卓で1+1を計算して" via the screenshot + Vision path).
+3. Restart Claude Desktop. The `flax` tools then appear and an LLM can drive Windows apps (e.g. "open Notepad and type hello", or for WinUI3 apps "calculate 1+1 in Calculator" via the screenshot + Vision path).
 
 ### Using Flax.Mcp from other MCP clients (opencode / Cline / generic stdio)
 
